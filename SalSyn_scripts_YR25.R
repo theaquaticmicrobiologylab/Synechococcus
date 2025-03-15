@@ -9,12 +9,11 @@ library(tibble)
 library(gtools)
 library(ggtree)
 library(ggtext)
-setwd("/Users/niu_mwh/Library/CloudStorage/GoogleDrive-hensonmw@gmail.com/My\ Drive/Syn_salinity_EM")
+library(pheatmap)
+
 # Load data
-#counts_df <- read.csv("merged_counts_derep97.txt", sep="\t", check.names=FALSE)  # Read merged count table
-counts_df <- read.csv("merged_counts_UpdatedAllGenomes.txt", sep="\t", check.names=FALSE)
-#metadata_df <- read.csv("Syn_salinity_2025_v3.csv")  # Read genome metadata
-metadata_df <- read.csv("Syn_salinity_2025.csv")  # Read genome metadata
+counts_df <- read.csv("Counts_AllGenomes.txt", sep="\t", check.names=FALSE) # Read merged count table
+metadata_df <- read.csv("metadata.csv")  # Read genome metadata
 
 # Rename "Reference" to "genome_name" to match metadata
 colnames(counts_df)[1] <- "genome_name"
@@ -24,7 +23,6 @@ counts_df$genome_name <- gsub("_00000[0-9]+", "", counts_df$genome_name)  # Remo
 agg_counts <- counts_df %>%
   group_by(genome_name) %>%
   summarise(across(everything(), sum, na.rm = TRUE))  # Sum counts per genome
-agg_counts <- agg_counts[agg_counts$genome_name != "MV0610", ]
 agg_counts_long <- agg_counts %>%
   pivot_longer(cols = -c(genome_name, Length), names_to = "sample", values_to = "count")
 #write.csv(agg_counts, "agg_rawcounts.csv")
@@ -37,7 +35,6 @@ agg_counts_long_wSalinity <- agg_counts_long %>%
   filter(total_reads_per_sample > 50) %>%
   group_by(sample) %>%
   mutate(Salinity = as.numeric(sapply(strsplit(sample, "_"), function(x) x[2])))
-#agg_counts_long_wSalinity$RPKM[is.na(agg_counts_long_wSalinity$RPKM)] <- 0 
 agg_counts_long_wSalinity_filtered <- agg_counts_long_wSalinity %>%
   group_by(genome_name) %>%
   mutate(count_RPKM=sum(RPKM > 2), samples=n(), cutoff_value=(samples*0.05)) %>%
@@ -68,11 +65,8 @@ final_classification <- peak_salinity %>%
     max_salinity < 6 ~ "Freshwater",  # Max salinity below 5
     TRUE ~ "Brackish"  # Default category
   ))
-merged_df <- final_classification %>%
-  inner_join(metadata_df, by="genome_name")  %>%
-  filter(median_RPKM >= 5) %>%
-  select(genome_name, Taxonomy, peak_salinity, max_salinity, max_RPKM, median_RPKM, median_Sal,category, Source_salinity)
 
+#RPKM Filtering
 agg_counts_long_wSalinity_filtered <- agg_counts_long_wSalinity %>%
   group_by(genome_name) %>%
   mutate(count_RPKM=sum(RPKM > 5), samples=n(), cutoff_value=(samples*0.05)) %>%
@@ -105,14 +99,10 @@ data <- ggplot(agg_count_merged, aes(Salinity, RPKM, color = category, shape = S
 
 data
 
-# Save output
-write.csv(agg_count_merged, "RPKM_classifications.csv", row.names=FALSE)
-
-
 
 # Load the metadata file
-metadata_redo <- read.csv("RPKM_reclaiffication.csv")
-gene_clusters_redo <- read.delim("reclassified_SaluniqKO.tsv", sep='\t', stringsAsFactors=FALSE)
+metadata_redo <- read.csv("Metadata_RPKMreclaiffication.csv")
+gene_clusters_redo <- read.delim("RPKMreclassified_SaluniqKO.tsv", sep='\t', stringsAsFactors=FALSE)
 
 # Select relevant metadata columns
 metadata_columns <- c("genome_name", "Taxonomy","RPKM", "OriginationSource", "Source_salinity", "peak_salinity", "min_salinity", "max_salinity", 
@@ -121,23 +111,14 @@ metadata_V2 <- metadata_redo %>% select(all_of(metadata_columns))
 metadata_V2_unique <- metadata_V2 %>% distinct(genome_name, Taxonomy, Source_salinity,category, match, .keep_all = FALSE)
 metadata_3 <- metadata_V2 %>% distinct(genome_name, peak_salinity, Taxonomy, Source_salinity,category, .keep_all = FALSE)
 merged_V2 <- left_join(metadata_df, metadata_3, by="genome_name")
-merged_Cluster_peak<- merged_V2[!is.na(merged_V2$peak_salinity), ] %>%
-  group_by(Subcluster) %>%
-  summarise(median_SC_Sal=median(peak_salinity), mean=mean(peak_salinity))
-
-cluster_peakavg<-metadata_3%>%
-  group_by(Subcluster) %<%
-  summarise(median=mean(peak_salinity)
-            
-            
+       
 # Count genes per KOfam per genome
 kofam_counts <- gene_clusters_redo %>% 
   group_by(genome_name, KOfam_ACC, KOfam) %>% 
   summarise(gene_count = n(), .groups = 'drop')
+                                      
 # Merge with metadata
 merged <- left_join(kofam_counts, metadata_V2_unique, by="genome_name")
-
-#write.csv(merged, "Reclassified_KOcounts.csv")
 
 heatmap_data <- merged %>% 
   select(genome_name, KOfam_ACC, gene_count) %>% 
@@ -155,7 +136,6 @@ row_annotations <- merged %>%
   distinct() %>% 
   column_to_rownames("genome_name")
 
-
 # Generate color palettes for annotations
 heatmap_colors <- colorRampPalette(c("white", "orange", "red"))(100)
 salinity_colors <- c("#56B4E9","#E69F00","#009E73")  # Source_salinity
@@ -168,7 +148,6 @@ annotation_colors <- list(
   Source_salinity = salinity_colors,
   category = category_colors
 )
-
 
 # Generate heatmap
 pheatmap(
@@ -186,21 +165,10 @@ pheatmap(
   color = heatmap_colors
 )
 
-
-library(dplyr)
-library(tidyr)
-library(ggplot2)
-library(pheatmap)
-library(RColorBrewer)
-library(tibble)
-
-
-
 # Read TSV files
 metadata <- read.csv("RPKM_reclaiffication.csv")
 gene_clusters_redo <- read.delim("reclassified_SaluniqKO.tsv", sep='\t', stringsAsFactors=FALSE)
 all_metadata<-read.csv("Syn_salinity_2025.csv")
-all_gene_clusters<-read.delim("SynSal_2025_pan_gene_clusters_summary.tsv", sep='\t', stringsAsFactors=FALSE)
 # Count genes per KOfam per genome
 kofam_counts <- all_gene_clusters %>% 
   group_by(genome_name, gene_cluster_id, KOfam_ACC, KOfam) %>% 
@@ -280,7 +248,7 @@ library(ggtree)
 library(ggtreeExtra)
 library(tidyverse)
 library(ape)
-tree<-read.tree("iqtree-out_bootstrapped/iqtree_SynSal_derep2025_out.treefile")
+tree<-read.tree("iqtree_SynSal_derep2025_out.treefile")
 tree <- root(tree, outgroup = "GCF_000011385", resolve.root = TRUE)
 metadata<-read.csv("Syn_salinity_2025.csv")
 
@@ -359,7 +327,7 @@ library(ggplot2)
 library(ggrepel)
 
 # Load the data from the Excel file
-df <- read_excel("Manuscript/Fig/MV0715_proteomics_plotting.xlsx")
+df <- read_excel("proteomics_plotting.xlsx")
 
 
 # Convert relevant columns to numeric
